@@ -40,17 +40,16 @@ interface LineItem {
   amount: number;
 }
 
-const TODAY = "2026-07-08";
+const TODAY = new Date().toISOString().slice(0, 10);
 
 export default function InvoicingPage() {
   const { postEntry, markSettled } = useFinance();
 
-  const [customer, setCustomer] = useState("Beacon Retail Group");
+  const [customer, setCustomer] = useState("");
   const [state, setState] = useState("NY");
-  const [zip, setZip] = useState("10012");
+  const [zip, setZip] = useState("");
   const [items, setItems] = useState<LineItem[]>([
-    { id: 1, description: "Brand identity design", amount: 3200 },
-    { id: 2, description: "Website development — phase 1", amount: 4800 },
+    { id: 1, description: "", amount: 0 },
   ]);
 
   const [tax, setTax] = useState<TaxResult | null>(null);

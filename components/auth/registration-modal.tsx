@@ -43,6 +43,7 @@ export function RegistrationModal({ open, onClose }: Props) {
     email: "",
     password: "",
     company: "",
+    ein: "",
     industry: "SaaS / Technology",
     state: "NY",
   });
@@ -81,6 +82,8 @@ export function RegistrationModal({ open, onClose }: Props) {
       }
       const { error: orgError } = await supabase.rpc("create_organization", {
         org_name: form.company,
+        org_ein: form.ein.trim() || null,
+        org_state: form.state,
       });
       if (orgError) throw orgError;
       setDone(true);
@@ -95,7 +98,9 @@ export function RegistrationModal({ open, onClose }: Props) {
     form.fullName.trim().length > 1 &&
     /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(form.email) &&
     form.password.length >= 8;
-  const step2Valid = form.company.trim().length > 1;
+  const einValid =
+    form.ein.trim() === "" || /^\d{2}-?\d{7}$/.test(form.ein.trim());
+  const step2Valid = form.company.trim().length > 1 && einValid;
 
   /** The compliance gate: both required policies must be accepted. */
   const complianceComplete = useMemo(
@@ -218,6 +223,21 @@ export function RegistrationModal({ open, onClose }: Props) {
                     value={form.company}
                     onChange={set("company")}
                   />
+                  <div>
+                    <Field
+                      icon={<ShieldCheck size={15} />}
+                      label="EIN — Employer Identification Number (optional)"
+                      type="text"
+                      placeholder="12-3456789"
+                      value={form.ein}
+                      onChange={set("ein")}
+                    />
+                    {!einValid && (
+                      <p className="mt-1.5 text-xs font-medium text-red-600 dark:text-red-400">
+                        EIN must be 9 digits, e.g. 12-3456789
+                      </p>
+                    )}
+                  </div>
                   <SelectField
                     label="Industry"
                     value={form.industry}

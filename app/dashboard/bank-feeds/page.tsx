@@ -65,6 +65,13 @@ export default function BankFeedsPage() {
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
+      <div className="rounded-xl border border-amber-300/50 bg-amber-50 px-4 py-3 text-xs font-medium text-amber-800 dark:border-amber-500/30 dark:bg-amber-900/20 dark:text-amber-300">
+        ⚠ Demo mode — this bank connection is simulated with sample
+        transactions. Matching a transaction posts a real entry to your
+        ledger. The live Plaid integration arrives in Phase 3; until then,
+        only match transactions if you want them in your books.
+      </div>
+
       {state !== "connected" && (
         <ConnectPanel state={state} progress={progress} onConnect={connect} />
       )}
