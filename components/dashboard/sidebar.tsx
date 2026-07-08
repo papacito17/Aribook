@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Landmark,
   LayoutDashboard,
@@ -10,6 +10,8 @@ import {
   FileText,
   LogOut,
 } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { useFinance } from "@/lib/store/finance-context";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
@@ -22,6 +24,20 @@ const NAV_ITEMS = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, org } = useFinance();
+
+  const initials = (user?.name ?? "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join("");
+
+  const handleSignOut = async () => {
+    await createClient().auth.signOut();
+    router.push("/login");
+  };
 
   return (
     <aside className="sticky top-0 hidden h-screen w-60 shrink-0 flex-col border-r border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 md:flex">
@@ -75,19 +91,21 @@ export function Sidebar() {
       <div className="border-t border-zinc-200 p-3 dark:border-zinc-800">
         <div className="flex items-center gap-3 rounded-xl p-2.5 transition-colors hover:bg-zinc-100 dark:hover:bg-zinc-800">
           <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 text-xs font-bold text-white">
-            AR
+            {initials || "·"}
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold">Alex Rivera</p>
-            <p className="truncate text-xs text-zinc-500">Acme Studio LLC</p>
+            <p className="truncate text-sm font-semibold">
+              {user?.name ?? "Loading…"}
+            </p>
+            <p className="truncate text-xs text-zinc-500">{org?.name ?? ""}</p>
           </div>
-          <Link
-            href="/"
+          <button
+            onClick={handleSignOut}
             aria-label="Sign out"
             className="text-zinc-400 transition-colors hover:text-red-500"
           >
             <LogOut size={15} />
-          </Link>
+          </button>
         </div>
       </div>
     </aside>

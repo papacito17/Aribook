@@ -44,7 +44,7 @@ const INTEGRATIONS = [
 ];
 
 export default function SettingsPage() {
-  const { basis, entries } = useFinance();
+  const { basis, entries, org, user } = useFinance();
 
   return (
     <div className="mx-auto max-w-6xl space-y-6">
@@ -56,10 +56,10 @@ export default function SettingsPage() {
             <h2 className="font-bold">Company</h2>
           </div>
           <dl className="mt-4 space-y-3 text-sm">
-            <SettingRow label="Legal name" value="Acme Studio LLC" />
-            <SettingRow label="EIN" value="88-1234567" />
+            <SettingRow label="Legal name" value={org?.name ?? "—"} />
+            <SettingRow label="EIN" value={org?.ein ?? "Not set"} />
             <SettingRow label="Fiscal year" value="January – December" />
-            <SettingRow label="Home state" value="New York (NY)" />
+            <SettingRow label="Home state" value={user?.state ?? "Not set"} />
           </dl>
 
           <div className="mt-6 rounded-xl border border-zinc-200 p-4 dark:border-zinc-700">

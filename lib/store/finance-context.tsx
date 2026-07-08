@@ -70,9 +70,23 @@ function rowToEntry(row: EntryRow): JournalEntry {
   };
 }
 
+export interface OrgProfile {
+  id: string;
+  name: string;
+  ein: string | null;
+}
+
+export interface UserProfile {
+  name: string;
+  email: string;
+  state: string | null;
+}
+
 interface FinanceState {
   loading: boolean;
   orgId: string | null;
+  org: OrgProfile | null;
+  user: UserProfile | null;
   basis: ReportingBasis;
   setBasis: (b: ReportingBasis) => void;
   entries: JournalEntry[];
@@ -88,6 +102,8 @@ const FinanceContext = createContext<FinanceState | null>(null);
 export function FinanceProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [orgId, setOrgId] = useState<string | null>(null);
+  const [org, setOrg] = useState<OrgProfile | null>(null);
+  const [user, setUser] = useState<UserProfile | null>(null);
   const [basis, setBasisState] = useState<ReportingBasis>("accrual");
   const [entries, setEntries] = useState<JournalEntry[]>([]);
 
@@ -98,19 +114,32 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       const {
-        data: { user },
+        data: { user: authUser },
       } = await supabase.auth.getUser();
-      if (!user || cancelled) return;
+      if (!authUser || cancelled) return;
+
+      const meta = (authUser.user_metadata ?? {}) as {
+        full_name?: string;
+        state?: string;
+      };
+      setUser({
+        name: meta.full_name || authUser.email?.split("@")[0] || "Account",
+        email: authUser.email ?? "",
+        state: meta.state ?? null,
+      });
 
       const { data: memberships } = await supabase
         .from("memberships")
-        .select("org_id, organizations(reporting_basis)")
+        .select("org_id, organizations(name, ein, reporting_basis)")
         .limit(1);
 
       let org = memberships?.[0]?.org_id as string | undefined;
-      const orgBasis = (
-        memberships?.[0]?.organizations as { reporting_basis?: string } | null
-      )?.reporting_basis;
+      const orgRow = memberships?.[0]?.organizations as {
+        name?: string;
+        ein?: string | null;
+        reporting_basis?: string;
+      } | null;
+      const orgBasis = orgRow?.reporting_basis;
 
       if (!org) {
         // Signed up outside the onboarding modal — provision a default org.
@@ -128,6 +157,11 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
 
       setOrgId(org);
+      setOrg({
+        id: org,
+        name: orgRow?.name ?? "My Company",
+        ein: orgRow?.ein ?? null,
+      });
       if (orgBasis === "cash" || orgBasis === "accrual") setBasisState(orgBasis);
 
       const { data: rows, error: loadError } = await supabase
@@ -237,6 +271,8 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
     () => ({
       loading,
       orgId,
+      org,
+      user,
       basis,
       setBasis,
       entries,
@@ -246,7 +282,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       cash,
       series,
     }),
-    [loading, orgId, basis, setBasis, entries, postEntry, markSettled, pnl, cash, series]
+    [loading, orgId, org, user, basis, setBasis, entries, postEntry, markSettled, pnl, cash, series]
   );
 
   return (

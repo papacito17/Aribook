@@ -55,10 +55,10 @@ function Navbar({ onSignup }: { onSignup: () => void }) {
         <div className="flex items-center gap-3">
           <ThemeToggle />
           <Link
-            href="/dashboard"
+            href="/login"
             className="hidden text-sm font-medium text-zinc-600 transition-colors hover:text-zinc-900 dark:text-zinc-300 dark:hover:text-white sm:block"
           >
-            Sign In
+            Log In
           </Link>
           <button
             onClick={onSignup}
@@ -386,9 +386,9 @@ function Footer() {
         <Logo />
         <p>© 2026 Ari Books, Inc. · SOC 2 Type II · Made in the USA</p>
         <div className="flex gap-6">
-          <a href="#terms" className="transition-colors hover:text-brand-600">Terms</a>
-          <a href="#privacy" className="transition-colors hover:text-brand-600">Privacy</a>
-          <a href="#security" className="transition-colors hover:text-brand-600">Security</a>
+          <Link href="/terms" className="transition-colors hover:text-brand-600">Terms</Link>
+          <Link href="/privacy" className="transition-colors hover:text-brand-600">Privacy</Link>
+          <Link href="/privacy#security" className="transition-colors hover:text-brand-600">Security</Link>
         </div>
       </div>
     </footer>

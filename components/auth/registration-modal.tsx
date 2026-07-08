@@ -71,7 +71,14 @@ export function RegistrationModal({ open, onClose }: Props) {
           data: { full_name: form.fullName, industry: form.industry, state: form.state },
         },
       });
-      if (signUpError) throw signUpError;
+      if (signUpError) {
+        if (/already registered/i.test(signUpError.message)) {
+          throw new Error(
+            "This email already has an account — use Log In instead."
+          );
+        }
+        throw signUpError;
+      }
       const { error: orgError } = await supabase.rpc("create_organization", {
         org_name: form.company,
       });
@@ -254,7 +261,7 @@ export function RegistrationModal({ open, onClose }: Props) {
                       description={
                         <>
                           I have read and agree to the{" "}
-                          <PolicyLink href="#terms">
+                          <PolicyLink href="/terms">
                             Terms and Conditions
                           </PolicyLink>
                           , including the subscription and billing terms.
@@ -271,7 +278,7 @@ export function RegistrationModal({ open, onClose }: Props) {
                       description={
                         <>
                           I consent to the processing of my data as described
-                          in the <PolicyLink href="#privacy">Privacy Policy</PolicyLink>{" "}
+                          in the <PolicyLink href="/privacy">Privacy Policy</PolicyLink>{" "}
                           (SOC 2 Type II, bank-level encryption).
                         </>
                       }
@@ -488,6 +495,8 @@ function PolicyLink({
   return (
     <a
       href={href}
+      target="_blank"
+      rel="noopener noreferrer"
       onClick={(e) => e.stopPropagation()}
       className="font-medium text-brand-600 underline underline-offset-2 hover:text-brand-500 dark:text-brand-400"
     >
