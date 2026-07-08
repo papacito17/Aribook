@@ -79,7 +79,7 @@ export interface MonthlyPnL {
 export function monthlyPnLSeries(
   entries: JournalEntry[],
   basis: ReportingBasis,
-  now: Date = new Date("2026-07-07")
+  now: Date = new Date()
 ): MonthlyPnL[] {
   const months: { key: string; label: string }[] = [];
   for (let i = 5; i >= 0; i--) {

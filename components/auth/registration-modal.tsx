@@ -12,6 +12,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
+import { createClient } from "@/lib/supabase/client";
 import {
   ArrowLeft,
   ArrowRight,
@@ -51,9 +52,37 @@ export function RegistrationModal({ open, onClose }: Props) {
     marketing: false, // optional — does not gate the button
   });
   const [done, setDone] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const set = (key: keyof typeof form) => (value: string) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  /** Real signup: Supabase auth user + organization seeded with the US COA. */
+  const handleCreate = async () => {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const supabase = createClient();
+      const { error: signUpError } = await supabase.auth.signUp({
+        email: form.email,
+        password: form.password,
+        options: {
+          data: { full_name: form.fullName, industry: form.industry, state: form.state },
+        },
+      });
+      if (signUpError) throw signUpError;
+      const { error: orgError } = await supabase.rpc("create_organization", {
+        org_name: form.company,
+      });
+      if (orgError) throw orgError;
+      setDone(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Something went wrong. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const step1Valid =
     form.fullName.trim().length > 1 &&
@@ -272,11 +301,17 @@ export function RegistrationModal({ open, onClose }: Props) {
                       : "Accept both required policies to unlock account creation."}
                   </div>
 
+                  {error && (
+                    <div className="rounded-lg bg-red-50 px-3 py-2 text-xs font-medium text-red-700 dark:bg-red-900/30 dark:text-red-300">
+                      {error}
+                    </div>
+                  )}
+
                   <div className="flex gap-3">
                     <BackButton onClick={() => setStep(1)} />
                     <button
-                      onClick={() => setDone(true)}
-                      disabled={!complianceComplete}
+                      onClick={handleCreate}
+                      disabled={!complianceComplete || submitting}
                       className={cn(
                         "flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition-all duration-300",
                         complianceComplete
@@ -289,7 +324,7 @@ export function RegistrationModal({ open, onClose }: Props) {
                       ) : (
                         <Lock size={15} />
                       )}
-                      Create Account
+                      {submitting ? "Creating account…" : "Create Account"}
                     </button>
                   </div>
                 </StepShell>

@@ -1,24 +1,26 @@
 "use client";
 
 /**
- * Global financial state.
+ * Global financial state, backed by Supabase.
  *
- * Holds the journal (the single source of truth for every metric) and the
- * global Cash vs. Accrual reporting basis. Components post balanced
- * journal entries here; dashboards derive P&L, Net Income, and cash
- * balances live under the selected basis.
+ * The journal lives in Postgres (immutable, balance-enforced, RLS-scoped
+ * to the user's organization). This context loads it once, then keeps an
+ * optimistic in-memory mirror: postEntry/markSettled update the UI
+ * instantly and persist through the ledger RPCs in the background.
  */
 
 import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useState,
   type ReactNode,
 } from "react";
 import {
   createEntry,
+  type EntrySource,
   type JournalEntry,
   type ReportingBasis,
 } from "@/lib/ledger/journal";
@@ -29,111 +31,48 @@ import {
   type MonthlyPnL,
   type ProfitAndLoss,
 } from "@/lib/ledger/reports";
+import { createClient } from "@/lib/supabase/client";
 
-// ── Seed data: six months of realistic activity ──────────────
+const isUuid = (id: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-/.test(id);
 
-function seed(): JournalEntry[] {
-  const entries: Omit<JournalEntry, "id">[] = [
-    // Opening capital
-    {
-      date: "2026-01-05",
-      memo: "Owner capital contribution",
-      source: "manual",
-      settled: true,
-      settledDate: "2026-01-05",
-      lines: [
-        { accountCode: "10200", debit: 55000, credit: 0 },
-        { accountCode: "30000", debit: 0, credit: 55000 },
-      ],
-    },
-  ];
+type DbResult = { data?: unknown; error: { message: string } | null };
 
-  // Monthly recurring revenue + expenses, Feb–Jul 2026
-  const months = ["02", "03", "04", "05", "06", "07"];
-  const revenues = [18400, 21150, 19800, 24600, 27350, 23900];
-  const payrolls = [8200, 8200, 9400, 9400, 10600, 10600];
-
-  months.forEach((mm, i) => {
-    const settled = { settled: true, settledDate: `2026-${mm}-15` };
-    entries.push(
-      {
-        date: `2026-${mm}-15`,
-        memo: `Stripe payouts — 2026-${mm}`,
-        source: "bank-feed",
-        ...settled,
-        lines: [
-          { accountCode: "10200", debit: revenues[i], credit: 0 },
-          { accountCode: "40000", debit: 0, credit: revenues[i] },
-        ],
-      },
-      {
-        date: `2026-${mm}-01`,
-        memo: `Payroll — Gusto 2026-${mm}`,
-        source: "bank-feed",
-        settled: true,
-        settledDate: `2026-${mm}-01`,
-        lines: [
-          { accountCode: "67000", debit: payrolls[i], credit: 0 },
-          { accountCode: "10200", debit: 0, credit: payrolls[i] },
-        ],
-      },
-      {
-        date: `2026-${mm}-03`,
-        memo: `Office rent — WeWork 2026-${mm}`,
-        source: "bank-feed",
-        settled: true,
-        settledDate: `2026-${mm}-03`,
-        lines: [
-          { accountCode: "64000", debit: 1450, credit: 0 },
-          { accountCode: "10200", debit: 0, credit: 1450 },
-        ],
-      }
-    );
-  });
-
-  // Accrued (unpaid) invoices — visible under accrual, hidden under cash
-  entries.push(
-    {
-      date: "2026-06-24",
-      memo: "Invoice — Beacon Retail Group (INV-1042)",
-      source: "invoice",
-      settled: false,
-      lines: [
-        { accountCode: "11000", debit: 8662.5, credit: 0 },
-        { accountCode: "40000", debit: 0, credit: 8000 },
-        { accountCode: "22100", debit: 0, credit: 662.5 },
-      ],
-    },
-    {
-      date: "2026-07-02",
-      memo: "Invoice — Harborview Clinics (INV-1043)",
-      source: "invoice",
-      settled: false,
-      lines: [
-        { accountCode: "11000", debit: 5411.25, credit: 0 },
-        { accountCode: "40000", debit: 0, credit: 5000 },
-        { accountCode: "22100", debit: 0, credit: 411.25 },
-      ],
-    },
-    // Accrued unpaid bill
-    {
-      date: "2026-07-01",
-      memo: "Bill — Meridian Insurance Q3 premium",
-      source: "bill",
-      settled: false,
-      lines: [
-        { accountCode: "62000", debit: 2140, credit: 0 },
-        { accountCode: "20000", debit: 0, credit: 2140 },
-      ],
-    }
-  );
-
-  return entries.map(createEntry);
+interface EntryRow {
+  id: string;
+  entry_date: string;
+  memo: string;
+  source: EntrySource;
+  settled: boolean;
+  settled_date: string | null;
+  journal_lines: {
+    line_no: number;
+    debit: string | number;
+    credit: string | number;
+    accounts: { code: string } | null;
+  }[];
 }
 
-// ── Context ─────────────────────────────────────────────────
+function rowToEntry(row: EntryRow): JournalEntry {
+  return {
+    id: row.id,
+    date: row.entry_date,
+    memo: row.memo,
+    source: row.source,
+    settled: row.settled,
+    settledDate: row.settled_date ?? undefined,
+    lines: [...row.journal_lines]
+      .sort((a, b) => a.line_no - b.line_no)
+      .map((l) => ({
+        accountCode: l.accounts?.code ?? "",
+        debit: Number(l.debit),
+        credit: Number(l.credit),
+      })),
+  };
+}
 
 interface FinanceState {
+  loading: boolean;
+  orgId: string | null;
   basis: ReportingBasis;
   setBasis: (b: ReportingBasis) => void;
   entries: JournalEntry[];
@@ -147,14 +86,129 @@ interface FinanceState {
 const FinanceContext = createContext<FinanceState | null>(null);
 
 export function FinanceProvider({ children }: { children: ReactNode }) {
-  const [basis, setBasis] = useState<ReportingBasis>("accrual");
-  const [entries, setEntries] = useState<JournalEntry[]>(seed);
+  const [loading, setLoading] = useState(true);
+  const [orgId, setOrgId] = useState<string | null>(null);
+  const [basis, setBasisState] = useState<ReportingBasis>("accrual");
+  const [entries, setEntries] = useState<JournalEntry[]>([]);
 
-  const postEntry = useCallback((entry: Omit<JournalEntry, "id">) => {
-    const posted = createEntry(entry);
-    setEntries((prev) => [...prev, posted]);
-    return posted;
+  // Initial load: resolve the user's organization and pull the journal.
+  useEffect(() => {
+    const supabase = createClient();
+    let cancelled = false;
+
+    (async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user || cancelled) return;
+
+      const { data: memberships } = await supabase
+        .from("memberships")
+        .select("org_id, organizations(reporting_basis)")
+        .limit(1);
+
+      let org = memberships?.[0]?.org_id as string | undefined;
+      const orgBasis = (
+        memberships?.[0]?.organizations as { reporting_basis?: string } | null
+      )?.reporting_basis;
+
+      if (!org) {
+        // Signed up outside the onboarding modal — provision a default org.
+        const { data: created, error } = await supabase.rpc(
+          "create_organization",
+          { org_name: "My Company" }
+        );
+        if (error) {
+          console.error("Failed to create organization:", error.message);
+          if (!cancelled) setLoading(false);
+          return;
+        }
+        org = created as string;
+      }
+      if (cancelled) return;
+
+      setOrgId(org);
+      if (orgBasis === "cash" || orgBasis === "accrual") setBasisState(orgBasis);
+
+      const { data: rows, error: loadError } = await supabase
+        .from("journal_entries")
+        .select(
+          "id, entry_date, memo, source, settled, settled_date, journal_lines(line_no, debit, credit, accounts(code))"
+        )
+        .eq("org_id", org)
+        .order("entry_number", { ascending: true });
+
+      if (loadError) console.error("Failed to load journal:", loadError.message);
+      if (!cancelled) {
+        setEntries(((rows as unknown as EntryRow[]) ?? []).map(rowToEntry));
+        setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
+
+  // Persist the reporting basis on the organization.
+  const setBasis = useCallback(
+    (b: ReportingBasis) => {
+      setBasisState(b);
+      if (orgId) {
+        const supabase = createClient();
+        supabase
+          .from("organizations")
+          .update({ reporting_basis: b })
+          .eq("id", orgId)
+          .then(({ error }: DbResult) => {
+            if (error) console.error("Failed to save basis:", error.message);
+          });
+      }
+    },
+    [orgId]
+  );
+
+  const postEntry = useCallback(
+    (entry: Omit<JournalEntry, "id">) => {
+      // Validates balance locally (throws on unbalanced) and shows instantly.
+      const posted = createEntry(entry);
+      setEntries((prev) => [...prev, posted]);
+
+      if (orgId) {
+        const supabase = createClient();
+        supabase
+          .rpc("post_journal_entry", {
+            p_org: orgId,
+            p_date: entry.date,
+            p_memo: entry.memo,
+            p_source: entry.source,
+            p_lines: entry.lines.map((l) => ({
+              account_code: l.accountCode,
+              debit: l.debit,
+              credit: l.credit,
+            })),
+            p_settled: entry.settled,
+            p_settled_date: entry.settledDate ?? null,
+          })
+          .then(({ data, error }: DbResult) => {
+            if (error) {
+              console.error("Failed to persist entry:", error.message);
+              // Roll back the optimistic entry so UI matches the ledger.
+              setEntries((prev) => prev.filter((e) => e.id !== posted.id));
+            } else if (data) {
+              // Swap the temporary id for the database uuid.
+              setEntries((prev) =>
+                prev.map((e) =>
+                  e.id === posted.id ? { ...e, id: data as string } : e
+                )
+              );
+            }
+          });
+      }
+      return posted;
+    },
+    [orgId]
+  );
 
   const markSettled = useCallback((entryId: string, settledDate: string) => {
     setEntries((prev) =>
@@ -162,6 +216,14 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
         e.id === entryId ? { ...e, settled: true, settledDate } : e
       )
     );
+    if (isUuid(entryId)) {
+      const supabase = createClient();
+      supabase
+        .rpc("settle_entry", { p_entry: entryId, p_date: settledDate })
+        .then(({ error }: DbResult) => {
+          if (error) console.error("Failed to settle entry:", error.message);
+        });
+    }
   }, []);
 
   const pnl = useMemo(() => profitAndLoss(entries, basis), [entries, basis]);
@@ -172,8 +234,19 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ basis, setBasis, entries, postEntry, markSettled, pnl, cash, series }),
-    [basis, entries, postEntry, markSettled, pnl, cash, series]
+    () => ({
+      loading,
+      orgId,
+      basis,
+      setBasis,
+      entries,
+      postEntry,
+      markSettled,
+      pnl,
+      cash,
+      series,
+    }),
+    [loading, orgId, basis, setBasis, entries, postEntry, markSettled, pnl, cash, series]
   );
 
   return (

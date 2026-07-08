@@ -1,9 +1,10 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import { Bell, Search } from "lucide-react";
+import { usePathname, useRouter } from "next/navigation";
+import { Bell, LogOut, Search } from "lucide-react";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { BasisToggle } from "@/components/dashboard/basis-toggle";
+import { createClient } from "@/lib/supabase/client";
 
 const TITLES: Record<string, string> = {
   "/dashboard": "Financial Overview",
@@ -15,7 +16,13 @@ const TITLES: Record<string, string> = {
 
 export function Topbar() {
   const pathname = usePathname();
+  const router = useRouter();
   const title = TITLES[pathname] ?? "Dashboard";
+
+  const handleSignOut = async () => {
+    await createClient().auth.signOut();
+    router.push("/login");
+  };
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between gap-4 border-b border-zinc-200 bg-white/80 px-6 backdrop-blur-xl dark:border-zinc-800 dark:bg-zinc-900/80">
@@ -45,6 +52,15 @@ export function Topbar() {
         </button>
 
         <ThemeToggle />
+
+        <button
+          onClick={handleSignOut}
+          aria-label="Sign out"
+          title="Sign out"
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-zinc-200 text-zinc-500 transition-all duration-300 hover:scale-105 hover:text-red-600 dark:border-zinc-800 dark:text-zinc-400"
+        >
+          <LogOut size={16} />
+        </button>
       </div>
     </header>
   );
